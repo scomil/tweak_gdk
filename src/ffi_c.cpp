@@ -312,6 +312,14 @@ GDK_DEFINE_C_FUNCTION_3(GA_sign_transaction, struct GA_session*, session, const 
     struct GA_auth_handler**, call,
     { *call = make_call(new ga::sdk::sign_transaction_call(*session, *json_cast(transaction_details))); })
 
+GDK_DEFINE_C_FUNCTION_3(GA_create_pset, struct GA_session*, session, const GA_json*, pset_details,
+    struct GA_auth_handler**, call,
+    { *call = make_call(new ga::sdk::create_pset_call(*session, *json_cast(pset_details))); })
+
+GDK_DEFINE_C_FUNCTION_3(GA_sign_pset, struct GA_session*, session, const GA_json*, pset_details,
+    struct GA_auth_handler**, call,
+    { *call = make_call(new ga::sdk::sign_pset_call(*session, *json_cast(pset_details))); })
+
 GDK_DEFINE_C_FUNCTION_3(GA_psbt_sign, struct GA_session*, session, const GA_json*, details, struct GA_auth_handler**,
     call, { *call = make_call(new ga::sdk::psbt_sign_call(*session, *json_cast(details))); })
 

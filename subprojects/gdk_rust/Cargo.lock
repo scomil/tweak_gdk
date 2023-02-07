@@ -649,6 +649,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "aes-gcm-siv",
+ "base64",
  "bitcoin",
  "block-modes",
  "electrum-client",

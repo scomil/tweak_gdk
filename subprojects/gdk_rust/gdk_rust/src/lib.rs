@@ -435,6 +435,14 @@ fn handle_session_call(
                 .map_err(Into::into)
         }
 
+        "create_pset" => session
+            .create_pset(&serde_json::from_value(input)?)
+            .map(|v| json!(v))
+            .map_err(Into::into),
+        "sign_pset" => {
+            session.sign_pset(&serde_json::from_value(input)?).map(|v| json!(v)).map_err(Into::into)
+        }
+
         "get_receive_address" => {
             let a = session
                 .get_receive_address(&serde_json::from_value(input)?)

@@ -354,6 +354,16 @@ namespace sdk {
         throw std::runtime_error("broadcast_transaction not implemented");
     }
 
+    nlohmann::json ga_lightning::create_pset(const nlohmann::json& /*details*/)
+    {
+        return nlohmann::json{ "not implemented" };
+    }
+
+    nlohmann::json ga_lightning::sign_pset(const nlohmann::json& /*details*/)
+    {
+        return nlohmann::json{ "not implemented" };
+    }
+
     void ga_lightning::send_nlocktimes() { throw std::runtime_error("send_nlocktimes not implemented"); }
 
     void ga_lightning::set_csvtime(const nlohmann::json& locktime_details, const nlohmann::json& twofactor_data)
