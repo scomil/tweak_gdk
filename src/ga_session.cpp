@@ -3477,23 +3477,6 @@ namespace sdk {
         return wamp_cast(m_wamp->call("vault.broadcast_raw_tx", tx_hex));
     }
 
-    static unsigned char* hex_to_bytes(const std::string& hex)
-    {
-       unsigned char *buff_p = nullptr;
-       size_t written = 0;
-
-       if (hex.empty()) {
-          return nullptr;
-       }
-       const size_t bin_len = hex.length() / 2;
-       buff_p = (unsigned char*)malloc(bin_len);
-       if ((wally_hex_to_bytes(hex.data(), buff_p, bin_len, &written) != WALLY_OK) || (written != bin_len)) {
-          free(buff_p);
-          return nullptr;
-       }
-       return buff_p;
-    }
-
     nlohmann::json ga_session::create_pset(const nlohmann::json& details)
     {
        nlohmann::json result;
@@ -3553,12 +3536,18 @@ namespace sdk {
                    }
                    else {
                       for (const auto& wit : det_input["witness"]) {
-                         wally_tx_witness_stack_add(witness, hex_to_bytes(wit), wit.size() / 2);
+                         auto witness_data = (unsigned char*)malloc(wit.size() / 2);
+                         memcpy(witness_data, h2b(wit).data(), wit.size() / 2);
+                         wally_tx_witness_stack_add(witness, witness_data, wit.size() / 2);
                       }
                    }
                 }
-                if (wally_tx_input_init_alloc(hex_to_bytes(utxo_hash), utxo_hash.size() / 2
-                   , utxo_index, sequence, hex_to_bytes(script), script.size() / 2
+                auto tx_hash = (unsigned char*)malloc(utxo_hash.size() / 2);
+                memcpy(tx_hash, h2b_rev(utxo_hash).data(), utxo_hash.size() / 2);
+                auto script_bin = (unsigned char*)malloc(script.size() / 2);
+                memcpy(script_bin, h2b(script).data(), script.size() / 2);
+                if (wally_tx_input_init_alloc(tx_hash, utxo_hash.size() / 2
+                   , utxo_index, sequence, script_bin, script.size() / 2
                    , witness, &input) != WALLY_OK) {
                    wally_psbt_free(psbt);
                    result["error"] = "failed to init input #" + std::to_string(index);
