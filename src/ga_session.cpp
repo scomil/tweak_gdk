@@ -30,6 +30,7 @@
 #include "utils.hpp"
 #include "version.h"
 #include "wamp_transport.hpp"
+#include "wally_psbt.h"
 #include "xpub_hdkey.hpp"
 
 #define TX_CACHE_LEVEL log_level::debug
@@ -3476,14 +3477,164 @@ namespace sdk {
         return wamp_cast(m_wamp->call("vault.broadcast_raw_tx", tx_hex));
     }
 
-    nlohmann::json ga_session::create_pset(const nlohmann::json& /*details*/)
+    nlohmann::json ga_session::create_pset(const nlohmann::json& details)
     {
-        return nlohmann::json{ "not implemented" };
+       nlohmann::json result;
+       struct wally_psbt* psbt = nullptr;
+       if (wally_psbt_init_alloc(0, 0, 0, 0, &psbt) != WALLY_OK) {
+          result["error"] = "failed to init/allocate PSET";
+          return result;
+       }
+       std::string prev_pset_base64;
+       if (details.contains("psbt")) {
+          prev_pset_base64 = details["psbt"].get<std::string>();
+       }
+       else if (details.contains("pset")) {
+          prev_pset_base64 = details["pset"].get<std::string>();
+       }
+       if (!prev_pset_base64.empty()) {
+          struct wally_psbt* prev_pset = nullptr;
+          if (wally_psbt_from_base64(prev_pset_base64.data(), &prev_pset) != WALLY_OK) {
+             result["error"] = "failed to parse previous PSET";
+             wally_psbt_free(psbt);
+             return result;
+          }
+          size_t prev_finalized = 0;
+          if ((wally_psbt_is_finalized(prev_pset, &prev_finalized) != WALLY_OK) || (prev_finalized != 0)) {
+             wally_psbt_free(prev_pset);
+             wally_psbt_free(psbt);
+             result["error"] = "can't merge in finalized PSET";
+             return result;
+          }
+          if (wally_psbt_combine(psbt, prev_pset) != WALLY_OK) {
+             wally_psbt_free(prev_pset);
+             wally_psbt_free(psbt);
+             result["error"] = "failed to combine with previous PSET";
+             return result;
+          }
+          wally_psbt_free(prev_pset);
+       }
+
+       if (details.contains("inputs") && details["inputs"].is_array()) {
+          for (const auto& det_input : details["inputs"]) {
+             struct wally_tx_input* input = nullptr;
+             uint32_t index = psbt->num_inputs;
+             if (det_input.contains("index")) {
+                index = det_input["index"].get<uint32_t>();
+             }
+             if (det_input.contains("utxo_hash") && det_input.contains("utxo_index")
+                && det_input.contains("sequence") && det_input.contains("script")) {
+                const auto& utxo_hash = det_input["utxo_hash"].get<std::string>();
+                const uint32_t utxo_index = det_input["utxo_index"].get<uint32_t>();
+                const uint32_t sequence = det_input["sequence"].get<uint32_t>();
+                const auto& script = det_input["script"].get<std::string>();
+                struct wally_tx_witness_stack* witness = nullptr;
+
+                if (det_input.contains("witness") && det_input["witness"].is_array()) {
+                   if (wally_tx_witness_stack_init_alloc(det_input["witness"].size(), &witness) != WALLY_OK) {
+                      witness = nullptr;
+                   }
+                   else {
+                      for (const auto& wit : det_input["witness"]) {
+                         auto witness_data = (unsigned char*)malloc(wit.size() / 2);
+                         memcpy(witness_data, h2b(wit).data(), wit.size() / 2);
+                         wally_tx_witness_stack_add(witness, witness_data, wit.size() / 2);
+                      }
+                   }
+                }
+                auto tx_hash = (unsigned char*)malloc(utxo_hash.size() / 2);
+                memcpy(tx_hash, h2b_rev(utxo_hash).data(), utxo_hash.size() / 2);
+                auto script_bin = (unsigned char*)malloc(script.size() / 2);
+                memcpy(script_bin, h2b(script).data(), script.size() / 2);
+                if (wally_tx_input_init_alloc(tx_hash, utxo_hash.size() / 2
+                   , utxo_index, sequence, script_bin, script.size() / 2
+                   , witness, &input) != WALLY_OK) {
+                   wally_psbt_free(psbt);
+                   result["error"] = "failed to init input #" + std::to_string(index);
+                   return result;
+                }
+             }
+             else {
+                wally_psbt_free(psbt);
+                result["error"] = "no valid input data for " + det_input.dump();
+                return result;
+             }
+             if (wally_psbt_add_input_at(psbt, index, 0, input) != WALLY_OK) {
+                wally_tx_input_free(input);
+                wally_psbt_free(psbt);
+                result["error"] = "failed to add input #" + std::to_string(index) + " to PSET";
+                return result;
+             }
+          }
+       }
+
+       if (details.contains("outputs") && details["outputs"].is_array()) {
+          for (const auto& det_output : details["outputs"]) {
+             struct wally_tx_output output {};
+             uint32_t index = psbt->num_outputs;
+             if (det_output.contains("index")) {
+                index = det_output["index"].get<uint32_t>();
+             }
+             if (det_output.contains("address") && det_output.contains("asset_id") && det_output.contains("amount")) {
+                const auto& address = det_output["address"].get<std::string>();
+                const auto& asset_id = det_output["asset_id"].get<std::string>();
+                const auto amount = det_output["amount"].get<uint64_t>();
+
+                std::vector<unsigned char> script = scriptpubkey_from_address(m_net_params, address);
+                if (wally_tx_output_init(amount, script.data(), script.size(), &output) != WALLY_OK) {
+                   wally_psbt_free(psbt);
+                   result["error"] = "failed to init output #" + std::to_string(index);
+                   return result;
+                }
+                const auto ct_value = tx_confidential_value_from_satoshi(amount);
+                output.value = (unsigned char*)malloc(ct_value.size());
+                memcpy(output.value, ct_value.data(), ct_value.size());
+                output.value_len = ct_value.size();
+
+                const auto asset_bytes = h2b_rev(asset_id, 0x1);
+                output.asset = (unsigned char*)malloc(asset_bytes.size());
+                memcpy(output.asset, asset_bytes.data(), asset_bytes.size());
+                output.asset_len = asset_bytes.size();
+             }
+             else {
+                wally_psbt_free(psbt);
+                result["error"] = "no output data found in " + det_output.dump();
+                return result;
+             }
+             if (wally_psbt_add_output_at(psbt, index, 0, &output) != WALLY_OK) {
+                wally_psbt_free(psbt);
+                free(output.value);
+                free(output.asset);
+                result["error"] = "failed to add output #" + std::to_string(index) + " to PSET";
+                return result;
+             }
+          }
+       }
+
+       if (details.contains("finalize") && details["finalize"].get<bool>()) {
+          if (wally_psbt_finalize(psbt) != WALLY_OK) {
+             result["error"] = "failed to finalize PSET";
+             wally_psbt_free(psbt);
+             return result;
+          }
+       }
+
+       char psbt_base64[8192];
+       memset(psbt_base64, 0, sizeof(psbt_base64));
+       if (wally_psbt_to_base64(psbt, 0, (char**) &psbt_base64) != WALLY_OK) {
+          result["error"] = "failed to encode PSET";
+          wally_psbt_free(psbt);
+          return result;
+       }
+       wally_psbt_free(psbt);
+       result["pset"] = std::string{psbt_base64};
+       return result;
     }
 
-    nlohmann::json ga_session::sign_pset(const nlohmann::json& /*details*/)
+    nlohmann::json ga_session::sign_pset(const nlohmann::json& details)
     {
-        return nlohmann::json{ "not implemented" };
+       // wally_psbt_sign has slightly different semantics, so not sure it should be used instead of the below call
+       return psbt_sign(details);
     }
 
     // Idempotent

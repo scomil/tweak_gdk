@@ -738,6 +738,101 @@ Sign PSBT Result JSON
 
 
 
+.. _create-pset-details:
+
+Create PSET JSON
+--------------
+
+.. code-block:: json
+
+  {
+    "psbt": "...",
+    "inputs": [ {
+        "index": 0
+        "utxo_hash": "...",
+        "utxo_index": 1,
+        "sequence": 2,
+        "script": "...",
+        "witness": ["..."]
+    } ],
+    "outputs": [ {
+        "index": 0
+        "address": "...",
+        "asset_id": "...",
+        "amount": 1234567
+    } ],
+    "finalize": false
+  }
+
+:psbt: or :pset: The PSBT or PSET encoded in base64 format (optional).
+:inputs: Inputs to be added to PSET.
+    :index:      input index (optional)
+    :utxo_hash:  UTXO tx id in hex
+    :utxo_index: UTXO index
+    :sequence:   UTXO sequence
+    :script:     redeem script in hex
+    :witness:    optional witness data, array of hex strings
+:outputs: Outputs to be added to PSET.
+    :index:      output index (optional)
+    :address:    output address
+    :asset_id:   liquid asset id in hex
+    :amount:     output amount in satoshis
+:finalize: Instruction to finalize the created PSET.
+
+
+.. _sign-psbt-result:
+
+Create PSET Result JSON
+---------------------
+
+.. code-block:: json
+
+  {
+    "pset": "...",
+    "error": "..."
+  }
+
+:pset: The PSBT or PSET in base64 format with all added inputs and outputs, to be signed separately.
+:error: The error message which caused the creation to abort.
+
+
+.. _sign-pset-details:
+
+Sign PSET JSON
+--------------
+
+.. code-block:: json
+
+  {
+    "psbt": "...",
+    "utxos": [],
+    "blinding_nonces": [],
+  }
+
+:psbt: The PSBT or PSET encoded in base64 format.
+:utxos: The UTXOs that should be signed, in the format returned by `GA_get_unspent_outputs`.
+        UTXOs that are not inputs of the PSBT/PSET can be included.
+        Caller can avoid signing an input by not passing in its UTXO.
+:blinding_nonces: For ``"2of2_no_recovery"`` subaccounts only, the blinding nonces in hex format for all outputs.
+
+
+.. _sign-pset-result:
+
+Sign PSET Result JSON
+---------------------
+
+.. code-block:: json
+
+  {
+    "psbt": "...",
+    "utxos": [],
+  }
+
+:psbt: The input PSBT or PSET in base64 format, with signatures added for all inputs signed.
+:utxos: The UTXOs corresponding to each signed input, in the order they appear in the PSBT transaction.
+
+
+
 .. _psbt-wallet-details:
 
 PSBT Get Details JSON
